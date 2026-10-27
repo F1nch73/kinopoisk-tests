@@ -20,6 +20,17 @@ class BasePage:
         "button[data-tid='CloseButton']",
     )
 
+    HEADER_LOCATOR: Locator = (
+        By.CSS_SELECTOR,
+        "header, [data-testid='header']",
+    )
+
+    # Кнопка входа в шапке отображается только анонимному пользователю.
+    LOGIN_BUTTON_LOCATOR: Locator = (
+        By.CSS_SELECTOR,
+        "[data-testid='loginHeaderButton']",
+    )
+
     def __init__(
         self,
         driver: WebDriver,
@@ -73,3 +84,19 @@ class BasePage:
 
         except TimeoutException:
             return False
+
+    @allure.step("Проверяем, авторизован ли пользователь")
+    def is_logged_in(self, timeout: float = 5) -> bool:
+        """
+        Проверяет, что браузер работает с авторизованной сессией.
+
+        Признак анонимного пользователя — кнопка входа в шапке.
+        """
+        try:
+            WebDriverWait(self.driver, timeout).until(
+                ec.presence_of_element_located(self.HEADER_LOCATOR)
+            )
+        except TimeoutException:
+            pass
+
+        return not self.driver.find_elements(*self.LOGIN_BUTTON_LOCATOR)

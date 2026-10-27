@@ -1,4 +1,8 @@
 import allure
+from selenium.common.exceptions import (
+    ElementClickInterceptedException,
+    TimeoutException,
+)
 from selenium.webdriver.common.by import By
 from selenium.webdriver.remote.webdriver import WebDriver
 from selenium.webdriver.support import expected_conditions as ec
@@ -17,10 +21,8 @@ class MainPage(BasePage):
         "button[type='submit'][aria-label='Найти']",
     )
 
-    FILM_LINK_LOCATOR = (
-        By.CSS_SELECTOR,
-        "a[href*='/film/']",
-    )
+    # Адрес страницы результатов поиска.
+    SEARCH_RESULTS_URL_PART = "/new-search/"
 
     def __init__(
         self,
@@ -32,26 +34,41 @@ class MainPage(BasePage):
 
     @allure.step('Вводим запрос «{query}» и нажимаем Поиск')
     def search(self, query: str) -> None:
-        """Вводит запрос и запускает поиск."""
+        """Вводит запрос, запускает поиск и ждёт страницу результатов."""
         search_input = self.wait.until(
             ec.element_to_be_clickable(self.SEARCH_INPUT_LOCATOR)
         )
         search_input.clear()
         search_input.send_keys(query)
 
+        assert search_input.get_attribute("value") == query, (
+            f"В поле поиска оказалось «"
+            f"{search_input.get_attribute('value')}» вместо «{query}»"
+        )
+
         search_button = self.wait.until(
             ec.element_to_be_clickable(self.SEARCH_BUTTON_LOCATOR)
         )
-        search_button.click()
+        try:
+            search_button.click()
+        except ElementClickInterceptedException:
+            # Кнопку может перекрывать рекламный баннер.
+            self.driver.execute_script(
+                "arguments[0].click();",
+                search_button,
+            )
 
-    @allure.step('Ждём появления карточек фильмов в результатах поиска')
-    def get_film_results(self) -> list:
-        """
-        Возвращает ссылки на фильмы в выдаче поиска.
+        self.wait_for_search_results()
 
-        Страница /new-search/ отдаёт пустую оболочку, а карточки
-        подгружаются асинхронно, поэтому дожидаемся их появления.
-        """
-        return self.wait.until(
-            ec.presence_of_all_elements_located(self.FILM_LINK_LOCATOR)
-        )
+    @allure.step("Ждём перехода на страницу результатов поиска")
+    def wait_for_search_results(self) -> None:
+        """Дожидается, что открылась страница результатов поиска."""
+        try:
+            self.wait.until(
+                ec.url_contains(self.SEARCH_RESULTS_URL_PART)
+            )
+        except TimeoutException as error:
+            raise AssertionError(
+                "Поиск не привёл на страницу результатов: "
+                f"текущий адрес — {self.driver.current_url}"
+            ) from error

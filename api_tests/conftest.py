@@ -1,5 +1,7 @@
 """Автосбор HTTP-трафика API в Allure-отчёт."""
 import json
+from collections.abc import Iterator
+from typing import Any
 
 import allure
 import pytest
@@ -8,7 +10,7 @@ import requests
 MAX_BODY_LENGTH = 20000
 
 
-def _dump_json(payload) -> str:
+def _dump_json(payload: Any) -> str:
     try:
         return json.dumps(
             payload,
@@ -23,10 +25,15 @@ def _dump_json(payload) -> str:
 def _truncate(body: str) -> str:
     if len(body) <= MAX_BODY_LENGTH:
         return body
-    return f"{body[:MAX_BODY_LENGTH]}\n... обрезано (всего {len(body)} символов)"
+    return (
+        f"{body[:MAX_BODY_LENGTH]}\n"
+        f"... обрезано (всего {len(body)} символов)"
+    )
 
 
-def _safe_headers(headers):
+def _safe_headers(
+    headers: dict[str, str] | None,
+) -> dict[str, str]:
     """Возвращает копию заголовков с маскированным API-ключом."""
     masked = dict(headers or {})
     for key in list(masked):
@@ -36,7 +43,7 @@ def _safe_headers(headers):
 
 
 @pytest.fixture(autouse=True)
-def attach_api_traffic_to_allure():
+def attach_api_traffic_to_allure() -> Iterator[None]:
     """
     Перехватывает HTTP-запросы через requests.Session и крепит
     тело запроса и ответ к Allure-отчёту.
@@ -46,7 +53,13 @@ def attach_api_traffic_to_allure():
     """
     original_request = requests.Session.request
 
-    def request(self, method, url, *args, **kwargs):
+    def request(
+        self: requests.Session,
+        method: str,
+        url: str,
+        *args: Any,
+        **kwargs: Any,
+    ) -> requests.Response:
         request_headers = _safe_headers(kwargs.get("headers"))
         request_params = kwargs.get("params")
         request_json = kwargs.get("json")

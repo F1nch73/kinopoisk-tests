@@ -1,18 +1,26 @@
 import allure
+import pytest
 import requests
+
+
+GENRE_PARAMS = (
+    pytest.param("криминал", id="genre-criminals"),
+    pytest.param("комедия", id="genre-comedy"),
+    pytest.param("фантастика", id="genre-scifi"),
+)
 
 
 @allure.feature("API: Фильмы")
 @allure.story("Фильтрация по жанру")
 @allure.severity(allure.severity_level.NORMAL)
-@allure.title("Получение фильмов выбранного жанра")
+@allure.title("Получение фильмов выбранного жанра: {genre}")
+@pytest.mark.parametrize("genre", GENRE_PARAMS)
 def test_api_get_movies_by_genre(
+    genre: str,
     api_base_url: str,
     api_key: str,
 ) -> None:
     """Проверяет получение фильмов выбранного жанра."""
-    genre = "криминал"
-    allure.dynamic.parameter("genre", genre)
     headers = {
         "X-API-KEY": api_key,
         "Accept": "application/json",

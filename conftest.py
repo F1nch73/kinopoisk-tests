@@ -9,6 +9,16 @@ import selenium
 from selenium import webdriver
 from selenium.webdriver.remote.webdriver import WebDriver
 
+from utils.auth import (
+    apply_auth_cookies,
+    auth_cookies_path,
+    cookies_expired,
+    interactive_login,
+    load_auth_cookies,
+    validate_auth_cookies,
+)
+from utils.browser import build_chrome_options, is_headless
+
 try:
     from dotenv import load_dotenv
 except ImportError:
@@ -19,6 +29,19 @@ else:
 DEFAULT_BASE_URL = "https://www.kinopoisk.ru"
 DEFAULT_API_BASE_URL = "https://api.poiskkino.dev"
 API_KEY = os.getenv("API_KEY", "")
+
+# Кэш cookies на сессию: проверяем и обновляем их один раз за прогон.
+_AUTH_CACHE: dict[str, list[dict] | None] = {"cookies": None}
+
+
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Добавляет опцию принудительного обновления cookies."""
+    parser.addoption(
+        "--refresh-auth",
+        action="store_true",
+        default=False,
+        help="заново получить cookies авторизации перед прогоном",
+    )
 
 
 @pytest.fixture(scope="session")
@@ -80,13 +103,8 @@ def allure_environment(request: pytest.FixtureRequest) -> None:
 
 
 def _build_chrome_options() -> webdriver.ChromeOptions:
-    options = webdriver.ChromeOptions()
-    if os.getenv("HEADLESS", "").lower() in {"1", "true", "yes"}:
-        options.add_argument("--headless=new")
-    options.add_argument("--disable-gpu")
-    options.add_argument("--no-sandbox")
-    options.add_argument("--window-size=1920,1080")
-    return options
+    """Опции Chrome для тестов (режим берётся из HEADLESS)."""
+    return build_chrome_options()
 
 
 @pytest.fixture
@@ -102,6 +120,121 @@ def driver() -> Iterator[WebDriver]:
         yield web_driver
     finally:
         web_driver.quit()
+
+
+def _session_needs_auth(items: list[pytest.Item]) -> bool:
+    """Проверяет, есть ли в прогоне тесты с авторизацией."""
+    return any(
+        "authorized_driver" in getattr(item, "fixturenames", ())
+        for item in items
+    )
+
+
+def _can_login_interactively() -> bool:
+    """
+    Проверяет, можно ли открыть браузер для входа.
+
+    Вход невозможен в headless-режиме и если он отключён
+    переменной окружения KINOPOISK_AUTO_LOGIN=0.
+    """
+    if os.getenv("KINOPOISK_AUTO_LOGIN", "1").lower() in {"0", "false", "no"}:
+        return False
+    return not is_headless()
+
+
+def _prepare_auth_cookies(
+    config: pytest.Config,
+    base_url: str,
+) -> list[dict]:
+    """
+    Готовит cookies авторизации один раз за прогон.
+
+    Если cookies в файле ещё действуют, берём их. Иначе запускаем
+    вход в браузере и сохраняем новые cookies.
+    """
+    if _AUTH_CACHE["cookies"] is not None:
+        return _AUTH_CACHE["cookies"]
+
+    force_refresh = bool(config.getoption("refresh_auth", False))
+    cookies = [] if force_refresh else load_auth_cookies()
+
+    if cookies and not cookies_expired(cookies):
+        if validate_auth_cookies(cookies, base_url):
+            print(
+                f"[auth] используем cookies из {auth_cookies_path()}",
+                flush=True,
+            )
+            _AUTH_CACHE["cookies"] = cookies
+            return cookies
+        print("[auth] cookies из файла больше не действуют.", flush=True)
+    elif cookies:
+        print("[auth] срок действия cookies истёк.", flush=True)
+
+    if not _can_login_interactively():
+        print(
+            "[auth] cookies нужно обновить вручную: включён HEADLESS "
+            "или автовход отключён (KINOPOISK_AUTO_LOGIN=0). "
+            "Запустите python save_auth_cookies.py",
+            flush=True,
+        )
+        _AUTH_CACHE["cookies"] = []
+        return []
+
+    _AUTH_CACHE["cookies"] = interactive_login(base_url)
+    return _AUTH_CACHE["cookies"]
+
+
+@pytest.fixture(scope="session", autouse=True)
+def prepare_auth(
+    request: pytest.FixtureRequest,
+    base_url: str,
+) -> None:
+    """
+    Обновляет cookies до запуска UI-тестов, которым нужна авторизация.
+
+    Фикстура ничего не делает, если таких тестов в прогоне нет.
+    """
+    if not _session_needs_auth(request.session.items):
+        return
+
+    _prepare_auth_cookies(request.config, base_url)
+
+
+@pytest.fixture(scope="session")
+def auth_cookies(
+    request: pytest.FixtureRequest,
+    base_url: str,
+) -> list[dict]:
+    """
+    Cookies авторизованной сессии Кинопоиска.
+
+    Перед использованием cookies проверяются: при необходимости
+    выполняется вход в браузере и файл перезаписывается.
+    """
+    cookies = _prepare_auth_cookies(request.config, base_url)
+    if not cookies:
+        pytest.skip(
+            "Нет действующих cookies авторизации. Выполните: "
+            "python save_auth_cookies.py "
+            f"(файл: {auth_cookies_path()})"
+        )
+    return cookies
+
+
+@pytest.fixture
+def authorized_driver(
+    driver: WebDriver,
+    auth_cookies: list[dict],
+    base_url: str,
+) -> Iterator[WebDriver]:
+    """Драйвер с подставленными cookies авторизованной сессии."""
+    driver.get(base_url)
+    added = apply_auth_cookies(driver, auth_cookies)
+    if added == 0:
+        pytest.skip("Не удалось применить cookies авторизации")
+
+    driver.refresh()
+    yield driver
 
 
 def _attach_driver_state(web_driver: WebDriver, stage: str) -> None:

@@ -1,7 +1,9 @@
 import allure
+import pytest
 import requests
 
 
+@pytest.mark.smoke
 @allure.feature("API: Поиск")
 @allure.story("Поиск фильмов по названию")
 @allure.severity(allure.severity_level.CRITICAL)
@@ -63,8 +65,7 @@ def test_api_search_film_by_name(
         )
 
         title_matches = any(
-            isinstance(title, str)
-            and query.casefold() in title.casefold()
+            isinstance(title, str) and query.casefold() in title.casefold()
             for title in titles
         )
 

@@ -1,0 +1,39 @@
+# Секреты
+.env
+.env.*
+!.env.example
+.auth/
+
+# Виртуальные окружения
+.venv/
+venv/
+env/
+
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# Pytest / allure
+.pytest_cache/
+allure-results/
+allure-report/
+
+# Покрытие
+.coverage
+.coverage.*
+htmlcov/
+
+# IDE
+.idea/
+.vscode/
+
+# Локальные утилиты и кеш линтеров
+.ruff_cache/
+.skills/
+
+# Файлы ОС
+.DS_Store
+Thumbs.db

@@ -26,7 +26,8 @@
 │   ├── test_api_genre.py
 │   ├── test_api_year.py
 │   ├── test_api_seasons.py
-│   └── test_api_invalid_key.py
+│   ├── test_api_invalid_key.py
+│   └── test_api_missing_key.py
 ├── pages/                # Page Object
 │   ├── base_page.py
 │   ├── main_page.py
